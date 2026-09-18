@@ -26,15 +26,17 @@ Deterministic JSON Schema: Uses strict LLM output formatting (json_object) to gu
 Sub-Second Latency: Leverages Groq LPU inference hardware for near-instant speech recognition and reasoning.
 
 🛠️ Tech Stack & Dependencies
-Language: Python 3.10+
+Speech-to-Text (STT): Groq API (whisper-large-v3-turbo) — Fast Urdu audio transcription.
 
-Inference Provider: Groq API
+Large Language Model (LLM): Groq Llama-3.3-70b-versatile — Structured JSON extraction (Intent + NER).
 
-Audio Processing: OpenAI Whisper Large v3 Turbo
+Text-to-Speech (TTS): edge-tts — Asynchronous Urdu speech synthesis.
 
-Language Model: GPT-OSS-20B
+API Backend: FastAPI, Uvicorn, Pydantic — Type-safe, high-performance REST execution.
 
-Environment & Tools: python-dotenv, groq, Git, VS Code
+Database & ORM: SQLAlchemy, SQLite — Persistent storage for worker activity logs.
+
+Pipeline Resilience: tenacity — Auto-retry decorator for API failure mitigation.
 
 📂 Repository Structure
 Hackathon-ONigiri/
