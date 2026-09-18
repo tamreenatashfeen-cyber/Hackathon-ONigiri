@@ -88,3 +88,69 @@ test_voice_1_ali.mp3: Audio Content: Availability query | Recognized Intent: AVA
 test_voice_2_ayan.mp3: Audio Content: Small talk ("Aaj mausam bohot acha hai") | Recognized Intent: UNKNOWN | Status: Pass
 
 test_voice_3_mine.mp3: Audio Content: "Main abhi available nahi hoon" | Recognized Intent: BUSY | Status: Pass
+
+# Voice AI Pipeline (STT + Intent Extraction + TTS)
+
+An end-to-end, production-ready Voice AI pipeline built for real-time Urdu voice command processing, intent/entity extraction, and speech response generation.
+
+---
+
+## Features
+- **Speech-to-Text (STT):** High-accuracy transcription using Groq Whisper (`whisper-large-v3-turbo`) with Urdu support.
+- **Intent & Entity Extraction (NER):** Classifies user intent (`AVAILABLE`, `BUSY`, `UNKNOWN`) and extracts `area` and `duration` in structured JSON format.
+- **Text-to-Speech (TTS):** Generates natural Urdu speech responses using `edge-tts`.
+- **Fault Tolerance:** Robust retry mechanism with exponential backoff using `tenacity` for API stability.
+- **FastAPI Integration:** Ready-to-use REST endpoints for audio upload and processing.
+
+---
+
+## Directory Structure
+ONigiri/
+├── app.py                 # FastAPI Web Server
+├── voice_pipeline.py      # Core Voice AI Pipeline Class
+├── test_batch.py          # Batch testing script for multiple audio scenarios
+├── uploaded_audios/       # Directory for input audio uploads
+└── test_audios/           # Test audio benchmark files
+
+## Setup & Installation
+
+1. **Environment Setup:**
+   ```powershell
+   python -m venv venv
+   .\venv\Scripts\activate
+Install Dependencies:
+
+PowerShell
+pip install fastapi uvicorn python-multipart groq edge-tts tenacity python-dotenv
+Configure Environment Variables:
+Create a .env file in the root directory:
+
+Code snippet
+GROQ_API_KEY=your_groq_api_key_here
+Usage
+1. Run Core Pipeline Directly
+PowerShell
+python voice_pipeline.py
+2. Run Batch Test Suite
+PowerShell
+python test_batch.py
+3. Launch FastAPI Server
+PowerShell
+uvicorn app:app --reload
+Access interactive API docs at: http://127.0.0.1:8000/docs
+
+API Schema
+POST /process-voice/
+Input: Audio file (.mp3, .wav)
+
+Output JSON:
+
+JSON
+{
+  "transcript": "میں گلبرگ میں دو گھنٹے فری ہوں",
+  "intent": "AVAILABLE",
+  "area": "Gulberg",
+  "duration": "2 hours",
+  "reply": "جی بہتر، میں آپ کی لوکیشن اور وقت نوٹ کر رہا ہوں۔",
+  "reply_audio_path": "reply_test.mp3"
+}
