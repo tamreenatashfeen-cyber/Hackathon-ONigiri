@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, DateTime
+from datetime import datetime
 from database import Base
 
 class Worker(Base):
@@ -27,12 +28,22 @@ class VoiceRequest(Base):
     __tablename__ = "voice_requests"
     
     id = Column(Integer, primary_key=True, index=True)
-    worker_id = Column(Integer, ForeignKey("workers.id")) # Link the request to the speaker
+    worker_id = Column(Integer, ForeignKey("workers.id"))
     
-    # Columns requested by Tamreena aka dev 2 onigiri
     transcript = Column(Text)
     intent = Column(String)
     area = Column(String, nullable=True)
     duration = Column(String, nullable=True)
     reply_text = Column(Text)
     reply_audio_path = Column(String)
+
+class EmployerRequest(Base):
+    __tablename__ = "employer_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    employer_id = Column(Integer, ForeignKey("employers.id"), nullable=True)
+    service_type = Column(String, nullable=True)
+    location = Column(String, nullable=True)
+    urgency = Column(String, nullable=True)
+    transcript = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)

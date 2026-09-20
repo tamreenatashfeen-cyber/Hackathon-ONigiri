@@ -1,17 +1,24 @@
+import os
+import shutil
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
-import shutil
-import os
+from groq import Groq
 
-# 1. Aap ki pipeline import
+from employer_parser import parse_employer_query
 from voice_pipeline import VoicePipeline
+from database import get_db
+import crud
+from database import engine
+import models
 
-# 2. Dev 1 ki database files/functions import
-from database import get_db       # Dev 1 ka DB connection
-import crud                      # Dev 1 ke CRUD functions
+# Yeh line database mein tables create kar degi agar woh maujood nahi hain
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 pipeline = VoicePipeline()
+
+# Groq client for Whisper STT
+client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 @app.post("/process-voice/")
 async def process_voice_endpoint(
@@ -24,7 +31,7 @@ async def process_voice_endpoint(
     with open(temp_file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Voice Pipeline run karein (Aap ka code call hua)
+    # Voice Pipeline run karein
     result = pipeline.process_voice_command(temp_file_path)
 
     # Temporary uploaded file delete karein
@@ -46,3 +53,51 @@ async def process_voice_endpoint(
         "data": result,
         "db_record_id": db_record.id
     }
+
+@app.post("/process-employer-voice/")
+async def process_employer_voice(
+    employer_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    try:
+        # Save temp audio file
+        temp_audio_path = f"temp_employer_{file.filename}"
+        with open(temp_audio_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        # 1. Speech to Text via Whisper
+        with open(temp_audio_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-large-v3-turbo",
+                file=audio_file,
+                language="ur"
+            )
+        raw_text = transcription.text
+
+        # Clean temp file
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
+
+        # 2. Parse Employer Query via Llama
+        parsed_data = parse_employer_query(raw_text)
+
+        # 3. Save to Database
+        db_record = crud.save_employer_request(
+            db=db,
+            employer_id=employer_id,
+            service_type=parsed_data.get("service_type"),
+            location=parsed_data.get("area"),
+            urgency=parsed_data.get("urgency"),
+            transcript=raw_text
+        )
+
+        return {
+            "status": "success",
+            "data": parsed_data,
+            "transcript": raw_text,
+            "db_record_id": db_record.id
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
