@@ -1,94 +1,195 @@
+from typing import Optional
+
+from fastapi import FastAPI, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 import os
-import json
-import time
-from dotenv import load_dotenv
-from groq import Groq
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import models
+from database import engine, get_db, test_db_connection
 
-load_dotenv()
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# VoicePipeLine() import
+from fastapi import UploadFile, File, HTTPException
+from voice_pipeline import VoicePipeline
+pipeline = VoicePipeline()
 
-# Retry mechanism for API calls: Retries up to 3 times with exponential backoff (2s, 4s, 8s)
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=8),
-    retry_error_callback=lambda retry_state: {"error": "API calls failed after 3 attempts."}
-)
-def call_groq_llm(system_prompt: str, user_prompt: str) -> dict:
-    """Helper function to execute Groq LLM completion with automatic retries."""
-    response = groq_client.chat.completions.create(
-        model="openai/gpt-oss-20b",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        response_format={"type": "json_object"}
-    )
-    return json.loads(response.choices[0].message.content)
+# crud functions for voice requests
+from crud import create_voice_request
+
+try:
+    test_db_connection()
+    models.Base.metadata.create_all(bind=engine)
+except Exception as exc:
+    raise RuntimeError(
+        "PostgreSQL is not running or DATABASE_URL is incorrect. "
+        "Start PostgreSQL and confirm the .env value is correct."
+    ) from exc
+
+app = FastAPI(title="Blue-Collar Hiring Hub API")
+
+# Pydantic Schemas for Validation
+class OTPRequest(BaseModel):
+    phone: str
+    cnic: Optional[str] = None  # Optional for employers
+
+class OTPVerify(BaseModel):
+    phone: str
+    otp: str
 
 
-def process_voice_intent(audio_path: str) -> dict:
-    if not os.path.exists(audio_path):
-        return {"error": f"Audio file '{audio_path}' not found."}
+import random
+from fastapi import HTTPException
+
+# Lightweight in-memory cache for OTPs during development (Phone -> OTP)
+otp_cache = {}
+
+@app.post("/send-otp")
+
+def send_otp(request: OTPRequest, db: Session = Depends(get_db)):
+    # 1. Generate a random 4-digit OTP
+    generated_otp = str(random.randint(1000, 9999))
     
-    # 1. Speech-to-Text with Exception Handling
+    # 2. Store it in the cache against the phone number
+    otp_cache[request.phone] = {
+        "otp": generated_otp,
+        "cnic": request.cnic # Temporarily hold the CNIC if provided for registration
+    }
+    
+    # TODO: Implement actual SMS gateway (Twilio/SNS) here. 
+    # For now, print to terminal so you can test end-to-end without a real SMS service.
+    print(f"--- MOCK SMS TO {request.phone}: Your OTP is {generated_otp} ---")
+    
+    return {"message": f"OTP sent successfully to {request.phone}"}
+
+@app.post("/verify-otp")
+
+def verify_otp(request: OTPVerify, db: Session = Depends(get_db)):
+    # 1. Check if OTP exists and matches
+    cached_data = otp_cache.get(request.phone)
+    
+    if not cached_data or cached_data["otp"] != request.otp:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP") # Replaces the mock on line 40
+        
+    # 2. Clear the OTP from cache to prevent reuse
+    del otp_cache[request.phone]
+    
+    # 3. Check if the user already exists in the database
+    worker = db.query(models.Worker).filter(models.Worker.phone == request.phone).first()
+    
+    # 4. If they don't exist, create a new worker record
+    if not worker:
+        if not cached_data.get("cnic"):
+            raise HTTPException(status_code=400, detail="CNIC required for new worker registration")
+            
+        new_worker = models.Worker(
+            phone=request.phone, 
+            cnic=cached_data["cnic"], 
+            status="inactive" # Defaults to inactive as per your models.py
+        )
+        db.add(new_worker)
+        db.commit()
+        db.refresh(new_worker)
+        return {"message": "New worker verified and registered", "worker_id": new_worker.id}
+
+    return {"message": "Existing user verified successfully", "worker_id": worker.id}
+
+@app.post("/process-voice/{worker_id}")
+async def process_worker_voice(worker_id: int, audio_file: UploadFile = File(...), db: Session = Depends(get_db)):
+    # 1. Verify the worker exists
+    worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
+
+    # 2. Save the uploaded audio file temporarily to disk
+    file_location = f"temp_{worker_id}_{audio_file.filename}"
     try:
-        with open(audio_path, "rb") as file:
-            transcription = groq_client.audio.transcriptions.create(
-                file=(audio_path, file.read()),
-                model="whisper-large-v3-turbo",
-                language="ur",
-                response_format="text"
-            )
-        recognized_text = transcription.strip()
-    except Exception as e:
-        return {"error": f"Whisper STT Failed: {str(e)}"}
+        with open(file_location, "wb+") as file_object:
+            file_object.write(await audio_file.read())
+            
+        # 3. Call Dev 2's pipeline function
+        result = pipeline.process_voice_command(file_location)
+        
+        # 4. Log the interaction in the new VoiceRequest table
+        new_request = models.VoiceRequest(
+            worker_id=worker_id,
+            transcript=result.get("transcript"),
+            intent=result.get("intent"),
+            area=result.get("area"),
+            duration=result.get("duration"),
+            reply_text=result.get("reply_text"),
+            reply_audio_path=result.get("reply_audio_path")
+        )
+        db.add(new_request)
+        
+        # 5. Update the worker's status based on the parsed intent
+        if result.get("intent") == "status_update_active":
+            worker.status = "active"
+        elif result.get("intent") == "status_update_inactive":
+            worker.status = "inactive"
+            
+        if result.get("area"):
+            worker.area = result.get("area")
+            
+        db.commit()
+        
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(file_location):
+            os.remove(file_location)
+            
+    return {
+        "message": "Voice processed successfully", 
+        "updated_status": worker.status,
+        "pipeline_data": result
+    }
 
-    if not recognized_text:
-        return {"error": "Audio transcription was empty."}
+@app.post("/process-voice/{worker_id}")
+async def process_worker_voice(
+    worker_id: int, 
+    audio_file: UploadFile = File(...), 
+    db: Session = Depends(get_db)
+):
+    # 1. Check if worker exists in DB
+    worker = db.query(models.Worker).filter(models.Worker.id == worker_id).first()
+    if not worker:
+        raise HTTPException(status_code=404, detail="Worker not found")
 
-    # 2. System Prompt Formulation
-    system_prompt = """
-You are an AI assistant analyzing user intent and extracting contextual details regarding availability.
-
-Classify intent into EXACTLY ONE category:
-1. AVAILABLE: Free, ready to talk, or available.
-2. BUSY: Occupied, unavailable, asking to call later, or expressing uncertainty.
-3. UNKNOWN: Incomplete thoughts, random small talk, or off-topic comments.
-
-Extract Entities:
-- area: Specific location, area, or city mentioned (e.g., "Gulberg", "Rawalpindi"). If not mentioned, return null.
-- duration: Timeframe or duration mentioned (e.g., "2 hours", "shaam tak"). If not mentioned, return null.
-
-Respond ONLY with a valid JSON object matching this EXACT schema:
-{
-  "intent": "BUSY|AVAILABLE|UNKNOWN",
-  "area": "Extracted location or null",
-  "duration": "Extracted duration or null",
-  "reply": "Contextual polite response in Urdu"
-}
-
-Examples:
-- Transcript: "Gulberg mein 2 ghante free hoon" 
-  -> {"intent": "AVAILABLE", "area": "Gulberg", "duration": "2 hours", "reply": "جی بہتر، میں آپ کی لوکیشن اور وقت نوٹ کر رہا ہوں۔"}
-- Transcript: "Main abhi busy hoon 1 ghante tak" 
-  -> {"intent": "BUSY", "area": null, "duration": "1 hour", "reply": "کال کا انتظار رہے گا، ایک گھنٹے بعد رابطہ کرتے ہیں۔"}
-"""
-
-    user_prompt = f'User transcript: "{recognized_text}"'
-
-    # 3. Intent Parsing with Retry Logic
+    # 2. Save incoming audio file to disk
+    file_location = f"temp_{worker_id}_{audio_file.filename}"
     try:
-        output_json = call_groq_llm(system_prompt, user_prompt)
-        output_json["transcript"] = recognized_text
-        return output_json
-    except Exception as e:
-        return {
-            "error": f"Intent LLM Processing Failed: {str(e)}",
-            "transcript": recognized_text
-        }
+        with open(file_location, "wb+") as file_object:
+            file_object.write(await audio_file.read())
 
+        # 3. Process voice command through pipeline
+        result = pipeline.process_voice_command(file_location)
 
-if __name__ == "__main__":
-    result = process_voice_intent("test_audios/test_location.mp3")
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+        # 4. Save voice request record to DB via CRUD function
+        new_request = create_voice_request(
+            db=db, 
+            worker_id=worker_id, 
+            voice_data=result
+        )
+
+        # 5. Update worker status and area based on intent
+        if result.get("intent") == "status_update_active":
+            worker.status = "active"
+        elif result.get("intent") == "status_update_inactive":
+            worker.status = "inactive"
+
+        if result.get("area"):
+            worker.area = result.get("area")
+
+        db.commit()
+
+    finally:
+        # 6. Delete temporary file
+        if os.path.exists(file_location):
+            os.remove(file_location)
+
+    # 7. Return complete response
+    return {
+        "message": "Voice processed successfully",
+        "updated_status": worker.status,
+        "pipeline_data": result,
+        "request_id": new_request.id
+    }
