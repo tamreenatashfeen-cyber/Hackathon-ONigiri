@@ -142,17 +142,23 @@ uvicorn app:app --reload
 Access interactive API docs at: http://127.0.0.1:8000/docs
 
 API Schema
-POST /process-voice/
-Input: Audio file (.mp3, .wav)
+### API Endpoint
 
-Output JSON:
+`POST /process-voice/?worker_id=1`
 
-JSON
+**Input:** Audio file (`.mp3`, `.wav`) + `worker_id`
+
+**Response JSON:**
+```json
 {
-  "transcript": "میں گلبرگ میں دو گھنٹے فری ہوں",
-  "intent": "AVAILABLE",
-  "area": "Gulberg",
-  "duration": "2 hours",
-  "reply": "جی بہتر، میں آپ کی لوکیشن اور وقت نوٹ کر رہا ہوں۔",
-  "reply_audio_path": "reply_test.mp3"
+  "status": "success",
+  "data": {
+    "intent": "BUSY",
+    "area": null,
+    "duration": "1 hour",
+    "reply": "کال کا انتظار رہے گا، ایک گھنٹے بعد رابطہ کرتے ہیں۔",
+    "transcript": "میں ابھی اویلیبل نہیں ہوں",
+    "reply_audio_path": "reply.mp3"
+  },
+  "db_record_id": 2
 }
