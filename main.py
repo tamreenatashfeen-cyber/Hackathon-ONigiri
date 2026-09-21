@@ -1,20 +1,34 @@
-from typing import Optional
+# Standard Library Imports
+import os        # Used to clean up/delete the temporary audio files from the server after processing
+import random    # Used to generate the random 4-digit numbers for your OTP verification
 
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
+# Type Hinting
+from typing import Optional  # Allows you to define optional fields in your schemas (like 'cnic' or 'urgency')
 
-import os
-import models
-from database import engine, get_db, test_db_connection
+# Core FastAPI Components
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+# FastAPI: Initializes your core application
+# Depends: Injects the database session into your route functions
+# HTTPException: Allows you to return proper API errors (like 404 Not Found or 400 Invalid OTP)
+# UploadFile, File: Handles parsing and receiving the audio files sent from the frontend
 
-# VoicePipeLine() import
-from fastapi import UploadFile, File, HTTPException
-from voice_pipeline import VoicePipeline
+# Data Validation
+from pydantic import BaseModel # Used as the base class to define your JSON request schemas (e.g., EmployerVoiceSearch)
+
+# Database Architecture
+from sqlalchemy.orm import Session # Provides the type hint for your active database connection inside your routes
+
+# Your Local Project Files
+import models # Imports your SQLAlchemy table definitions (Worker, Employer, VoiceRequest)
+from database import engine, get_db, test_db_connection 
+# engine: The actual connection string to your PostgreSQL/SQLite database
+# get_db: The generator function that opens and closes database sessions for each request
+# test_db_connection: Verifies the database is running when the app starts
+
+from voice_pipeline import VoicePipeline # Tamreena's AI pipeline that converts audio to text and extracts intents
+from crud import create_voice_request    # A helper function to cleanly save the voice interaction logs to the database
+
 pipeline = VoicePipeline()
-
-# crud functions for voice requests
-from crud import create_voice_request
 
 try:
     test_db_connection()
@@ -35,6 +49,11 @@ class OTPRequest(BaseModel):
 class OTPVerify(BaseModel):
     phone: str
     otp: str
+
+class EmployerVoiceSearch(BaseModel):
+    service_type: str
+    area: str
+    urgency: Optional[str] = None
 
 
 import random
@@ -193,3 +212,25 @@ async def process_worker_voice(
         "pipeline_data": result,
         "request_id": new_request.id
     }
+
+@app.post("/employer/search")
+def search_active_workers(search: EmployerVoiceSearch, db: Session = Depends(get_db)):
+    # 1. Base query: Only look for workers who are currently "active"
+    query = db.query(models.Worker).filter(models.Worker.status == "active")
+    
+    # 2. Filter by area if the employer provided one (case-insensitive)
+    if search.area:
+        query = query.filter(models.Worker.area.ilike(f"%{search.area}%"))
+        
+    # 3. Filter by service_type (e.g., "plumber", "electrician")
+    if search.service_type:
+        query = query.filter(models.Worker.service_type.ilike(f"%{search.service_type}%"))
+        
+    # Execute the query and fetch results
+    results = query.all()
+    
+    return {
+        "message": "Search completed",
+        "total_matches": len(results),
+        "workers": results
+    } 
