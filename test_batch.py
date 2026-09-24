@@ -9,10 +9,11 @@ pipeline = VoicePipeline()
 test_cases = [
     # Male / Female / Different Scenarios
     {"file": "test_audios/test_location.mp3", "scenario": "Standard Available with Location"},
-    {"file": "test_audios/test_busy_time.mp3", "scenario": "Busy with Time Duration"},
+    {"file": "test_audios/test_voice_1_ali.mp3", "scenario": "Busy with Time Duration"},
     {"file": "test_audios/test_ambiguous.mp3", "scenario": "Unclear / Ambiguous Intent"},
     {"file": "test_audios/test_incomplete.mp3", "scenario": "Incomplete Sentence"},
     {"file": "test_audios/test_mixed.mp3", "scenario": "Mixed Intent (Busy then Available)"},
+    {"file": "test_audios/test_voice_2_ayan.mp3", "scenario": "Different Voice (Ayan)"},
     # Aap mazeed audios yahan add kar sakti hain (Total 10-12)
 ]
 

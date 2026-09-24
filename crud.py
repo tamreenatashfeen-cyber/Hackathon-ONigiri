@@ -15,3 +15,16 @@ def create_voice_request(db: Session, worker_id: int, voice_data: dict):
     db.commit()
     db.refresh(db_voice)
     return db_voice
+
+def save_employer_request(db: Session, employer_id: int, service_type: str, location: str, urgency: str, transcript: str):
+    db_request = models.EmployerRequest(
+        employer_id=employer_id,
+        service_type=service_type,
+        location=location,
+        urgency=urgency,
+        transcript=transcript
+    )
+    db.add(db_request)
+    db.commit()
+    db.refresh(db_request)
+    return db_request

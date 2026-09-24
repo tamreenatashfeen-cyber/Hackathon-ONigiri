@@ -1,0 +1,19 @@
+# Web Framework & Server
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+
+# Database
+sqlalchemy
+psycopg2-binary
+python-dotenv
+
+# Frontend & HTTP Client
+streamlit
+requests
+
+# AI Voice Pipeline (Dev 2)
+groq
+edge-tts
+tenacity

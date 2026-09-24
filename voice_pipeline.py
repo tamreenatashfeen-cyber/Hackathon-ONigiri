@@ -103,12 +103,26 @@ Examples:
                 "transcript": recognized_text
             }
 
-        # Step 3: Text-to-Speech (TTS)
+        # Step 3: Text-to-Speech (TTS) - Safe Event Loop Execution
         if "reply" in output_json and output_json["reply"]:
             try:
-                audio_file_saved = asyncio.run(
-                    self._generate_audio_reply(output_json["reply"], output_reply_audio)
-                )
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                if loop.is_running():
+                    import nest_asyncio
+                    nest_asyncio.apply()
+                    audio_file_saved = loop.run_until_complete(
+                        self._generate_audio_reply(output_json["reply"], output_reply_audio)
+                    )
+                else:
+                    audio_file_saved = loop.run_until_complete(
+                        self._generate_audio_reply(output_json["reply"], output_reply_audio)
+                    )
+
                 output_json["reply_audio_path"] = audio_file_saved
             except Exception as e:
                 output_json["reply_audio_path"] = None
