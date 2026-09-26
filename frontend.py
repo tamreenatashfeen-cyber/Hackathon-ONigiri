@@ -23,7 +23,7 @@ logo_b64 = get_logo_base64()
 # ---------------------------------------------------------
 # Backend Integration Helpers
 # ---------------------------------------------------------
-BASE_URL = "https://bolocal.onrender.com/"
+BASE_URL = "https://bolocal.onrender.com"
 
 def send_otp(phone: str, cnic: Optional[str] = None):
     try:
