@@ -43,7 +43,7 @@ def verify_otp(phone: str, otp: str):
 
 def upload_worker_voice(worker_id: int, audio_input_file):
     """Handles Streamlit UploadedFile buffer directly without needing manual disk saves."""
-    url = f"{BASE_URL}/process-voice/{worker_id}"
+    url = f"{BASE_URL}/process-voice/"
     try:
         if hasattr(audio_input_file, "getvalue"):
             file_bytes = audio_input_file.getvalue()
@@ -56,8 +56,9 @@ def upload_worker_voice(worker_id: int, audio_input_file):
                 file_bytes = f.read()
             filename = Path(audio_input_file).name
 
-        files = {"audio_file": (filename, file_bytes, "audio/wav")}
-        response = requests.post(url, files=files, timeout=45)
+        files = {"file": (filename, file_bytes, "audio/wav")}
+        params = {"worker_id": worker_id}
+        response = requests.post(url, files=files, params=params, timeout=45)
         return response.json()
     except requests.exceptions.RequestException as e:
         return {"error": f"Voice service unavailable: {e}"}
@@ -423,21 +424,33 @@ elif st.session_state.screen == 'worker':
                     with st.spinner("Processing voice command with AI pipeline..."):
                         res = upload_worker_voice(st.session_state.worker_id, audio)
 
+                        # ---------------------------------------------------
+                        # TEMPORARY DEBUG LINE
+                        # This prints the raw backend response on screen so we
+                        # can see the EXACT field names the backend sends back
+                        # (e.g. is it "area" or "location"? "pipeline_data" or
+                        # "pipeline"?). Once we confirm the real field names,
+                        # remove this line and adjust the .get() calls below
+                        # to match exactly.
+                        # ---------------------------------------------------
+                        st.session_state.debug_last_response = res
                         if "error" in res:
                             st.error(res["error"])
                         else:
-                            st.session_state.is_active = (res.get("updated_status") == "active")
-                            p_info = res.get("pipeline_data", {})
+                            p_info = res.get("data", {})
+
+                            st.session_state.is_active = (p_info.get("intent", "").upper() == "AVAILABLE")
 
                             if p_info.get("area"):
                                 st.session_state.worker_area = p_info["area"]
                             if p_info.get("duration"):
                                 st.session_state.worker_duration = p_info["duration"]
-                            if p_info.get("reply_text"):
-                                st.session_state.last_reply_text = f"🔊 \"{p_info['reply_text']}\""
+                            if p_info.get("reply"):
+                                st.session_state.last_reply_text = f"🔊 \"{p_info['reply']}\""
                             if p_info.get("reply_audio_path") and os.path.exists(p_info["reply_audio_path"]):
                                 st.session_state.last_reply_audio = p_info["reply_audio_path"]
 
+                            st.session_state.debug_last_response = res
                             st.success("Status updated!")
                             st.rerun()
 
@@ -452,7 +465,10 @@ elif st.session_state.screen == 'worker':
 
             if st.session_state.last_reply_audio:
                 st.audio(st.session_state.last_reply_audio)
-
+            if "debug_last_response" in st.session_state:
+                st.markdown("---")
+                st.caption("DEBUG - raw backend response:")
+                st.json(st.session_state.debug_last_response)     
 # ===========================================================
 # EMPLOYER SCREEN
 # ===========================================================
