@@ -10,6 +10,7 @@ class Worker(Base):
     name = Column(String)
     status = Column(String, default="inactive")
     area = Column(String)
+    service_type = Column(String, nullable=True)
 
 class Employer(Base):
     __tablename__ = "employers"

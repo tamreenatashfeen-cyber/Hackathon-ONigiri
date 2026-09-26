@@ -1,12 +1,14 @@
 import streamlit as st
 import base64
+import os
 from pathlib import Path
+from typing import Optional
+import requests
 
 st.set_page_config(page_title="BoLocal", layout="wide", initial_sidebar_state="expanded")
 
 # ---------------------------------------------------------
-# Load the ICON ONLY (no text baked in) as base64 to embed in HTML.
-# Put icon.png in the SAME FOLDER as this frontend.py file
+# Load Logo
 # ---------------------------------------------------------
 LOGO_PATH = Path(__file__).parent / "icon.png"
 
@@ -19,10 +21,64 @@ def get_logo_base64():
 logo_b64 = get_logo_base64()
 
 # ---------------------------------------------------------
+# Backend Integration Helpers
+# ---------------------------------------------------------
+BASE_URL = "http://127.0.0.1:8000"
+
+def send_otp(phone: str, cnic: Optional[str] = None):
+    try:
+        payload = {"phone": phone, "cnic": cnic}
+        response = requests.post(f"{BASE_URL}/send-otp", json=payload, timeout=5)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Backend connection failed: {e}"}
+
+def verify_otp(phone: str, otp: str):
+    try:
+        payload = {"phone": phone, "otp": otp}
+        response = requests.post(f"{BASE_URL}/verify-otp", json=payload, timeout=5)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Backend connection failed: {e}"}
+
+def upload_worker_voice(worker_id: int, audio_input_file):
+    """Handles Streamlit UploadedFile buffer directly without needing manual disk saves."""
+    url = f"{BASE_URL}/process-voice/"
+    try:
+        if hasattr(audio_input_file, "getvalue"):
+            file_bytes = audio_input_file.getvalue()
+            filename = getattr(audio_input_file, "name", "worker_audio.wav")
+        elif isinstance(audio_input_file, (bytes, bytearray)):
+            file_bytes = audio_input_file
+            filename = "worker_audio.wav"
+        else:
+            with open(audio_input_file, "rb") as f:
+                file_bytes = f.read()
+            filename = Path(audio_input_file).name
+
+        files = {"file": (filename, file_bytes, "audio/wav")}
+        params = {"worker_id": worker_id}
+        response = requests.post(url, files=files, params=params, timeout=45)
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Voice service unavailable: {e}"}
+
+def search_workers(service_type: str, area: str, urgency: Optional[str] = None):
+    try:
+        payload = {
+            "service_type": "" if service_type == "All" else service_type,
+            "area": area,
+            "urgency": urgency
+        }
+        response = requests.post(f"{BASE_URL}/employer/search", json=payload, timeout=8)
+        if response.status_code == 200:
+            return response.json().get("workers", [])
+        return []
+    except requests.exceptions.RequestException:
+        return []
+
+# ---------------------------------------------------------
 # GLOBAL CSS
-# IMPORTANT FIX: we no longer hide the entire header — that was
-# also hiding Streamlit's built-in sidebar open/close arrow.
-# We only hide the hamburger main-menu icon, which is safe.
 # ---------------------------------------------------------
 st.markdown("""
 <style>
@@ -41,11 +97,7 @@ st.markdown("""
 
   .stApp { background: var(--cream); }
   #MainMenu { visibility: hidden; }
-  /* NOTE: header is intentionally NOT hidden — it contains the
-     sidebar's open/close arrow control. Hiding it broke the sidebar. */
 
-  /* FIX 2: target both the classic class AND the current data-testid,
-     with !important, so this wins regardless of Streamlit version. */
   .block-container,
   [data-testid="stMainBlockContainer"],
   [data-testid="block-container"] {
@@ -55,15 +107,12 @@ st.markdown("""
     padding-right: 3rem;
   }
 
-  /* ============ SIDEBAR (About / Help / Team / Worker / Employer) ============ */
+  /* SIDEBAR */
   section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, var(--plum) 0%, var(--plum-light) 100%);
   }
   section[data-testid="stSidebar"] * { color: var(--cream) !important; }
 
-  /* FIX 1: sidebar-tag div was removed from the HTML, so its old
-     margin-bottom rule was dead code doing nothing. Spacing now lives
-     directly on .sidebar-brand, the element that actually still exists. */
   section[data-testid="stSidebar"] > div:first-child {
     padding-top: 0.5rem !important;
   }
@@ -77,12 +126,11 @@ st.markdown("""
   .sidebar-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 30px; margin-top: -25px; }
   .sidebar-brand img { width: 34px; height: 34px; object-fit: contain; }
   .sidebar-brand .word { font-size: 20px; font-weight: 900; }
-  .sidebar-brand .word .bo { color: var(--coral-soft)  !important; }
+  .sidebar-brand .word .bo { color: var(--coral-soft) !important; }
 
   section[data-testid="stSidebar"] div[data-testid="stButton"] {
     margin-bottom: 0 !important;
   }
-  section[data-testid="stSidebar"] .sidebar-brand .word .bo { color: var(--coral-soft) !important; }
   section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
     background: rgba(255,255,255,0.07) !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
@@ -98,7 +146,7 @@ st.markdown("""
     border-color: var(--coral-soft) !important;
   }
 
-  /* ============ GLOBAL BUTTON STYLE (applies everywhere by default) ============ */
+  /* BUTTONS */
   div[data-testid="stButton"] > button {
     background: var(--coral-soft);
     color: #fff;
@@ -111,9 +159,6 @@ st.markdown("""
   div[data-testid="stButton"] > button:hover { background: var(--plum); color: #fff; }
   div[data-testid="stButton"] > button:disabled { background: #f0ece4; color: #a49bb8; }
 
-  /* Sidebar buttons override the global style above (already handled) */
-
-  /* Back button — smaller, ghost style, left-aligned */
   .back-btn div[data-testid="stButton"] > button {
     background: transparent;
     color: var(--plum);
@@ -124,12 +169,11 @@ st.markdown("""
   }
   .back-btn div[data-testid="stButton"] > button:hover { background: transparent; color: var(--coral); }
 
-  /* Active filter chip look */
   .filter-active div[data-testid="stButton"] > button {
     background: var(--plum) !important;
   }
 
-  /* ============ SPLASH PANEL (dark plum) ============ */
+  /* SPLASH */
   .st-key-splash_panel {
     background: linear-gradient(160deg, var(--plum) 0%, var(--plum-light) 100%);
     border-radius: 32px;
@@ -144,7 +188,7 @@ st.markdown("""
   .splash-word .lo { color: var(--cream); }
   .splash-tagline { color: rgba(255,249,241,0.75); font-size: 16px; margin-top: 8px; margin-bottom: 30px; }
 
-  /* ============ WORKER CARD (white, two-column) ============ */
+  /* WORKER CARD */
   .st-key-worker_card {
     background: #fff; border-radius: 28px; padding: 50px;
     box-shadow: 0 20px 50px -30px rgba(59,46,104,0.25);
@@ -178,7 +222,7 @@ st.markdown("""
   .info-card-big .value { font-size: 20px; font-weight: 900; color: var(--plum); margin-top: 4px; }
   .confirm-bubble { margin-top: 6px; background: var(--plum); color: var(--cream); padding: 14px 18px; border-radius: 16px 16px 16px 4px; font-size: 13.5px; }
 
-  /* ============ EMPLOYER SCREEN ============ */
+  /* EMPLOYER */
   .emp-title { font-size: 26px; color: var(--plum); font-weight: 900; }
   .emp-sub { color: #8b81a3; margin-top: 2px; margin-bottom: 20px; }
 
@@ -200,7 +244,7 @@ st.markdown("""
   .wc-badge { display: inline-block; padding: 5px 13px; border-radius: 100px; font-size: 11px; font-weight: 800; background: var(--mint); color: #245c48; margin-bottom: 4px; }
   .wc-badge.off { background: #f0ece4; color: #a49bb8; }
 
-  /* ============ CONFIRMATION CARD ============ */
+  /* CONFIRMATION */
   .st-key-confirm_card {
     max-width: 520px; margin: 20px auto; text-align: center; background: #fff;
     border-radius: 28px; padding: 60px 40px; box-shadow: 0 20px 50px -30px rgba(59,46,104,0.25);
@@ -209,7 +253,7 @@ st.markdown("""
   .check-circle svg { width: 42px; height: 42px; }
   .confirm-card-inner { display: flex; align-items: center; gap: 14px; background: var(--cream); border-radius: 16px; padding: 16px 18px; text-align: left; margin-bottom: 24px; }
 
-  /* ============ ABOUT / HELP / TEAM ============ */
+  /* CONTENT PAGES */
   .content-card { background: #fff; border-radius: 28px; padding: 50px; box-shadow: 0 20px 50px -30px rgba(59,46,104,0.25); }
   .content-card h2 { color: var(--plum); margin-bottom: 14px; }
   .content-card p { color: #5b5470; line-height: 1.7; }
@@ -221,8 +265,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-# Session state initialization
+# ---------------------------------------------------------
+# Session State Initialization
+# ---------------------------------------------------------
 if 'screen' not in st.session_state:
     st.session_state.screen = 'splash'
 if 'is_active' not in st.session_state:
@@ -231,16 +276,24 @@ if 'worker_area' not in st.session_state:
     st.session_state.worker_area = "G-11, Islamabad"
 if 'worker_duration' not in st.session_state:
     st.session_state.worker_duration = "9 AM – 6 PM"
+if 'worker_id' not in st.session_state:
+    st.session_state.worker_id = 1
+if 'last_reply_text' not in st.session_state:
+    st.session_state.last_reply_text = '🔊 "Aap ka status active kar diya gaya hai"'
+if 'last_reply_audio' not in st.session_state:
+    st.session_state.last_reply_audio = None
+if 'last_audio_hash' not in st.session_state:
+    st.session_state.last_audio_hash = None
 if 'selected_worker' not in st.session_state:
     st.session_state.selected_worker = None
 if 'selected_filter' not in st.session_state:
     st.session_state.selected_filter = "All"
-
+if 'employer_search_input' not in st.session_state:
+    st.session_state.employer_search_input = "Gulberg"
 
 def navigate_to(screen_name):
     st.session_state.screen = screen_name
     st.rerun()
-
 
 def back_button(target="splash", label="← Back to Home"):
     st.markdown('<div class="back-btn">', unsafe_allow_html=True)
@@ -250,12 +303,9 @@ def back_button(target="splash", label="← Back to Home"):
             navigate_to(target)
     st.markdown('</div>', unsafe_allow_html=True)
 
-
-# ===========================================================
-# SIDEBAR — real functional menu.
-# Streamlit's built-in arrow at the top-left now works again
-# because we stopped hiding the whole header.
-# ===========================================================
+# ---------------------------------------------------------
+# SIDEBAR
+# ---------------------------------------------------------
 with st.sidebar:
     logo_tag = f'<img src="data:image/png;base64,{logo_b64}">' if logo_b64 else ""
     st.markdown(f"""
@@ -277,7 +327,6 @@ with st.sidebar:
         navigate_to('help')
     if st.button("👥 Team"):
         navigate_to('team')
-
 
 # ===========================================================
 # SPLASH SCREEN
@@ -307,6 +356,36 @@ if st.session_state.screen == 'splash':
 elif st.session_state.screen == 'worker':
     back_button("splash")
 
+    # Worker Registration / Switcher Expander
+    with st.expander(f"🔐 Worker Phone / CNIC Verification (Worker ID: {st.session_state.worker_id})"):
+        col_p, col_c, col_sb = st.columns([2, 2, 1])
+        with col_p:
+            p_val = st.text_input("Phone Number", placeholder="03001234567", key="login_phone")
+        with col_c:
+            c_val = st.text_input("CNIC (New Worker)", placeholder="37405-1234567-1", key="login_cnic")
+        with col_sb:
+            st.write("")
+            if st.button("Send OTP"):
+                otp_res = send_otp(p_val, c_val)
+                if "error" in otp_res:
+                    st.error(otp_res["error"])
+                else:
+                    st.success(otp_res.get("message", "OTP Sent!"))
+
+        col_o, col_vb = st.columns([2, 1])
+        with col_o:
+            otp_val = st.text_input("Enter 4-digit OTP", placeholder="1234", key="login_otp")
+        with col_vb:
+            st.write("")
+            if st.button("Verify OTP"):
+                v_res = verify_otp(p_val, otp_val)
+                if "error" in v_res:
+                    st.error(v_res["error"])
+                elif "worker_id" in v_res:
+                    st.session_state.worker_id = v_res["worker_id"]
+                    st.success(f"Verified! Using Worker ID: {st.session_state.worker_id}")
+                    st.rerun()
+
     with st.container(key="worker_card"):
         left, right = st.columns([1, 1])
 
@@ -335,13 +414,45 @@ elif st.session_state.screen == 'worker':
 
             audio = st.audio_input("Record your status")
             if audio is not None:
-                # TODO: replace this block with your real voice_pipeline.py call
-                # result = process_voice_command(audio)
-                # st.session_state.is_active = (result["intent"] == "active")
-                # st.session_state.worker_area = result["area"]
-                # st.session_state.worker_duration = result["duration"]
-                st.session_state.is_active = True
-                st.rerun()
+                audio_data = audio.getvalue()
+                audio_hash = hash(audio_data)
+
+                # Process only when a new recording is submitted (prevents infinite reload)
+                if st.session_state.last_audio_hash != audio_hash:
+                    st.session_state.last_audio_hash = audio_hash
+
+                    with st.spinner("Processing voice command with AI pipeline..."):
+                        res = upload_worker_voice(st.session_state.worker_id, audio)
+
+                        # ---------------------------------------------------
+                        # TEMPORARY DEBUG LINE
+                        # This prints the raw backend response on screen so we
+                        # can see the EXACT field names the backend sends back
+                        # (e.g. is it "area" or "location"? "pipeline_data" or
+                        # "pipeline"?). Once we confirm the real field names,
+                        # remove this line and adjust the .get() calls below
+                        # to match exactly.
+                        # ---------------------------------------------------
+                        st.session_state.debug_last_response = res
+                        if "error" in res:
+                            st.error(res["error"])
+                        else:
+                            p_info = res.get("data", {})
+
+                            st.session_state.is_active = (p_info.get("intent", "").upper() == "AVAILABLE")
+
+                            if p_info.get("area"):
+                                st.session_state.worker_area = p_info["area"]
+                            if p_info.get("duration"):
+                                st.session_state.worker_duration = p_info["duration"]
+                            if p_info.get("reply"):
+                                st.session_state.last_reply_text = f"🔊 \"{p_info['reply']}\""
+                            if p_info.get("reply_audio_path") and os.path.exists(p_info["reply_audio_path"]):
+                                st.session_state.last_reply_audio = p_info["reply_audio_path"]
+
+                            st.session_state.debug_last_response = res
+                            st.success("Status updated!")
+                            st.rerun()
 
         with right:
             st.markdown(f"""
@@ -349,9 +460,15 @@ elif st.session_state.screen == 'worker':
             <div class="info-card-big"><div class="value">{st.session_state.worker_area}</div></div>
             <div class="info-label">AVAILABLE</div>
             <div class="info-card-big"><div class="value">{st.session_state.worker_duration}</div></div>
-            <div class="confirm-bubble">🔊 "Aap ka status active kar diya gaya hai"</div>
+            <div class="confirm-bubble">{st.session_state.last_reply_text}</div>
             """, unsafe_allow_html=True)
 
+            if st.session_state.last_reply_audio:
+                st.audio(st.session_state.last_reply_audio)
+            if "debug_last_response" in st.session_state:
+                st.markdown("---")
+                st.caption("DEBUG - raw backend response:")
+                st.json(st.session_state.debug_last_response)     
 # ===========================================================
 # EMPLOYER SCREEN
 # ===========================================================
@@ -360,21 +477,14 @@ elif st.session_state.screen == 'employer':
 
     st.markdown("""
     <div class="emp-title">Find help nearby</div>
-    <div class="emp-sub">12 workers active in your area right now</div>
+    <div class="emp-sub">Showing active workers in your area</div>
     """, unsafe_allow_html=True)
 
-    st.text_input("Search", value="Gulberg mein maid chahiye abhi", label_visibility="collapsed")
-    st.audio_input("Or search by voice")
+    query_val = st.text_input("Search area or service", value=st.session_state.employer_search_input)
+    if query_val != st.session_state.employer_search_input:
+        st.session_state.employer_search_input = query_val
 
-    # TODO: replace this with Developer 1's real matching function output.
-    # Each worker now has a "tags" list — this is what the filter buttons
-    # below actually check against, which is what makes filtering work.
-    workers = [
-        {"id": "w1", "name": "Rukhsana Bibi", "meta": "G-11 · Cleaning, Cooking", "color": "#E76F61", "active": True, "tags": ["Cleaning", "Cooking"]},
-        {"id": "w2", "name": "Shaista Kausar", "meta": "F-10 · Laundry", "color": "#3B2E68", "active": True, "tags": ["Laundry"]},
-        {"id": "w3", "name": "Aasia Manzoor", "meta": "G-9 · Cleaning", "color": "#9d94b3", "active": False, "tags": ["Cleaning"]},
-    ]
-
+    # Filters
     filters = ["All", "Cleaning", "Cooking", "Laundry"]
     filter_cols = st.columns(4)
     for i, f in enumerate(filters):
@@ -388,11 +498,34 @@ elif st.session_state.screen == 'employer':
             if is_on:
                 st.markdown('</div>', unsafe_allow_html=True)
 
-    # ACTUAL FILTERING LOGIC — this was completely missing before.
-    if st.session_state.selected_filter == "All":
-        visible_workers = workers
+    # 1. Query Backend Database
+    raw_workers = search_workers(
+        service_type=st.session_state.selected_filter,
+        area=st.session_state.employer_search_input
+    )
+
+    # 2. Present matched workers or fallback demo
+    if raw_workers:
+        visible_workers = []
+        palette = ["#E76F61", "#3B2E68", "#245c48", "#9d94b3"]
+        for idx, w in enumerate(raw_workers):
+            visible_workers.append({
+                "id": str(w.get("id")),
+                "name": w.get("phone", f"Worker #{w.get('id')}"),
+                "meta": f"{w.get('area', 'Islamabad')} · {w.get('service_type', 'General')}",
+                "color": palette[idx % len(palette)],
+                "active": (w.get("status") == "active")
+            })
     else:
-        visible_workers = [w for w in workers if st.session_state.selected_filter in w["tags"]]
+        demo_workers = [
+            {"id": "w1", "name": "Rukhsana Bibi", "meta": "G-11 · Cleaning, Cooking", "color": "#E76F61", "active": True, "tags": ["Cleaning", "Cooking"]},
+            {"id": "w2", "name": "Shaista Kausar", "meta": "F-10 · Laundry", "color": "#3B2E68", "active": True, "tags": ["Laundry"]},
+            {"id": "w3", "name": "Aasia Manzoor", "meta": "G-9 · Cleaning", "color": "#9d94b3", "active": False, "tags": ["Cleaning"]},
+        ]
+        if st.session_state.selected_filter == "All":
+            visible_workers = demo_workers
+        else:
+            visible_workers = [w for w in demo_workers if st.session_state.selected_filter in w["tags"]]
 
     st.write("")
 
@@ -513,7 +646,6 @@ elif st.session_state.screen == 'help':
 <h2>Help & FAQs</h2>
 
 <h3>For Workers</h3>
-
 <div class="faq-q">Q: How do I set my availability?</div>
 <p>Tap the microphone button and speak naturally — for example, "Main abhi free hoon,
 Gulberg mein 2 ghante ke liye." You don't need to type anything. The app listens,
@@ -536,7 +668,6 @@ employers, and it also confirms you're old enough to work, since CNICs are only 
 visible to employers — your CNIC number itself is never shown to anyone.</p>
 
 <h3>For Employers</h3>
-
 <div class="faq-q">Q: How do I find a worker?</div>
 <p>Type or speak what you need — for example, "Mujhe Gulberg mein maid chahiye abhi." The
 app will show you a list of currently active, verified workers nearby.</p>
@@ -556,7 +687,6 @@ own status.</p>
 directly so they can reach out to confirm timing.</p>
 
 <h3>General</h3>
-
 <div class="faq-q">Q: What languages does BoLocal support?</div>
 <p>The app is designed around Urdu and Roman Urdu voice input, since that's the everyday
 language of the workers it serves, alongside English for typed employer searches.</p>
