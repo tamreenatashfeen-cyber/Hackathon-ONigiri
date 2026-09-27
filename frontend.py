@@ -25,9 +25,9 @@ logo_b64 = get_logo_base64()
 # ---------------------------------------------------------
 BASE_URL = "https://bolocal.onrender.com"
 
-def send_otp(phone: str, cnic: Optional[str] = None):
+def send_otp(phone: str, cnic: Optional[str] = None, service_type: Optional[str] = None):
     try:
-        payload = {"phone": phone, "cnic": cnic}
+        payload = {"phone": phone, "cnic": cnic, "service_type": service_type}
         response = requests.post(f"{BASE_URL}/send-otp", json=payload, timeout=5)
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -357,34 +357,35 @@ elif st.session_state.screen == 'worker':
     back_button("splash")
 
     # Worker Registration / Switcher Expander
-    with st.expander(f"🔐 Worker Phone / CNIC Verification (Worker ID: {st.session_state.worker_id})"):
-        col_p, col_c, col_sb = st.columns([2, 2, 1])
-        with col_p:
-            p_val = st.text_input("Phone Number", placeholder="03001234567", key="login_phone")
-        with col_c:
-            c_val = st.text_input("CNIC (New Worker)", placeholder="37405-1234567-1", key="login_cnic")
-        with col_sb:
-            st.write("")
-            if st.button("Send OTP"):
-                otp_res = send_otp(p_val, c_val)
-                if "error" in otp_res:
-                    st.error(otp_res["error"])
-                else:
-                    st.success(otp_res.get("message", "OTP Sent!"))
+with st.expander(f"🔐 Worker Phone / CNIC Verification (Worker ID: {st.session_state.worker_id})"):
+    col_p, col_c, col_s = st.columns([2, 2, 2])
+    with col_p:
+        p_val = st.text_input("Phone Number", placeholder="03001234567", key="login_phone")
+    with col_c:
+        c_val = st.text_input("CNIC (New Worker)", placeholder="37405-1234567-1", key="login_cnic")
+    with col_s:
+        service_val = st.selectbox("Your Service", ["Cleaning", "Cooking", "Laundry"], key="signup_service")
 
-        col_o, col_vb = st.columns([2, 1])
-        with col_o:
-            otp_val = st.text_input("Enter 4-digit OTP", placeholder="1234", key="login_otp")
-        with col_vb:
-            st.write("")
-            if st.button("Verify OTP"):
-                v_res = verify_otp(p_val, otp_val)
-                if "error" in v_res:
-                    st.error(v_res["error"])
-                elif "worker_id" in v_res:
-                    st.session_state.worker_id = v_res["worker_id"]
-                    st.success(f"Verified! Using Worker ID: {st.session_state.worker_id}")
-                    st.rerun()
+    if st.button("Send OTP"):
+        otp_res = send_otp(p_val, c_val, service_val)
+        if "error" in otp_res:
+            st.error(otp_res["error"])
+        else:
+            st.success(otp_res.get("message", "OTP Sent!"))
+
+    col_o, col_vb = st.columns([2, 1])
+    with col_o:
+        otp_val = st.text_input("Enter 4-digit OTP", placeholder="1234", key="login_otp")
+    with col_vb:
+        st.write("")
+        if st.button("Verify OTP"):
+            v_res = verify_otp(p_val, otp_val)
+            if "error" in v_res:
+                st.error(v_res["error"])
+            elif "worker_id" in v_res:
+                st.session_state.worker_id = v_res["worker_id"]
+                st.success(f"Verified! Using Worker ID: {st.session_state.worker_id}")
+                st.rerun()
 
     with st.container(key="worker_card"):
         left, right = st.columns([1, 1])
@@ -424,16 +425,6 @@ elif st.session_state.screen == 'worker':
                     with st.spinner("Processing voice command with AI pipeline..."):
                         res = upload_worker_voice(st.session_state.worker_id, audio)
 
-                        # ---------------------------------------------------
-                        # TEMPORARY DEBUG LINE
-                        # This prints the raw backend response on screen so we
-                        # can see the EXACT field names the backend sends back
-                        # (e.g. is it "area" or "location"? "pipeline_data" or
-                        # "pipeline"?). Once we confirm the real field names,
-                        # remove this line and adjust the .get() calls below
-                        # to match exactly.
-                        # ---------------------------------------------------
-                        st.session_state.debug_last_response = res
                         if "error" in res:
                             st.error(res["error"])
                         else:
@@ -447,10 +438,19 @@ elif st.session_state.screen == 'worker':
                                 st.session_state.worker_duration = p_info["duration"]
                             if p_info.get("reply"):
                                 st.session_state.last_reply_text = f"🔊 \"{p_info['reply']}\""
-                            if p_info.get("reply_audio_path") and os.path.exists(p_info["reply_audio_path"]):
-                                st.session_state.last_reply_audio = p_info["reply_audio_path"]
 
-                            st.session_state.debug_last_response = res
+                            # Audio path handling: works whether the backend sends
+                            # a full URL (https://...) or, in local testing, a
+                            # path that exists on this same machine's disk.
+                            audio_path = p_info.get("reply_audio_path")
+                            if audio_path:
+                                if audio_path.startswith("http://") or audio_path.startswith("https://"):
+                                    st.session_state.last_reply_audio = audio_path
+                                elif os.path.exists(audio_path):
+                                    st.session_state.last_reply_audio = audio_path
+                                else:
+                                    st.session_state.last_reply_audio = None
+
                             st.success("Status updated!")
                             st.rerun()
 
@@ -465,10 +465,7 @@ elif st.session_state.screen == 'worker':
 
             if st.session_state.last_reply_audio:
                 st.audio(st.session_state.last_reply_audio)
-            if "debug_last_response" in st.session_state:
-                st.markdown("---")
-                st.caption("DEBUG - raw backend response:")
-                st.json(st.session_state.debug_last_response)     
+
 # ===========================================================
 # EMPLOYER SCREEN
 # ===========================================================

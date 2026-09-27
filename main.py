@@ -44,6 +44,7 @@ otp_cache = {}
 class OTPRequest(BaseModel):
     phone: str
     cnic: Optional[str] = None
+    service_type: Optional[str] = None
 
 class OTPVerify(BaseModel):
     phone: str
@@ -61,11 +62,11 @@ def send_otp(request: OTPRequest, db: Session = Depends(get_db)):
     generated_otp = str(random.randint(1000, 9999))
     otp_cache[request.phone] = {
         "otp": generated_otp,
-        "cnic": request.cnic
+        "cnic": request.cnic,
+        "service_type": request.service_type
     }
     print(f"--- MOCK SMS TO {request.phone}: Your OTP is {generated_otp} ---")
     return {"message": f"OTP sent successfully to {request.phone}"}
-
 @app.post("/verify-otp")
 def verify_otp(request: OTPVerify, db: Session = Depends(get_db)):
     cached_data = otp_cache.get(request.phone)
@@ -82,6 +83,7 @@ def verify_otp(request: OTPVerify, db: Session = Depends(get_db)):
         new_worker = models.Worker(
             phone=request.phone, 
             cnic=cached_data["cnic"], 
+            service_type=cached_data.get("service_type"),
             status="inactive"
         )
         db.add(new_worker)
