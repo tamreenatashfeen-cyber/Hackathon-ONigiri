@@ -357,35 +357,35 @@ elif st.session_state.screen == 'worker':
     back_button("splash")
 
     # Worker Registration / Switcher Expander
-with st.expander(f"🔐 Worker Phone / CNIC Verification (Worker ID: {st.session_state.worker_id})"):
-    col_p, col_c, col_s = st.columns([2, 2, 2])
-    with col_p:
-        p_val = st.text_input("Phone Number", placeholder="03001234567", key="login_phone")
-    with col_c:
-        c_val = st.text_input("CNIC (New Worker)", placeholder="37405-1234567-1", key="login_cnic")
-    with col_s:
-        service_val = st.selectbox("Your Service", ["Cleaning", "Cooking", "Laundry"], key="signup_service")
+    with st.expander(f"🔐 Worker Phone / CNIC Verification (Worker ID: {st.session_state.worker_id})"):
+        col_p, col_c, col_s = st.columns([2, 2, 2])
+        with col_p:
+            p_val = st.text_input("Phone Number", placeholder="03001234567", key="login_phone")
+        with col_c:
+            c_val = st.text_input("CNIC (New Worker)", placeholder="37405-1234567-1", key="login_cnic")
+        with col_s:
+            service_val = st.selectbox("Your Service", ["Cleaning", "Cooking", "Laundry"], key="signup_service")
 
-    if st.button("Send OTP"):
-        otp_res = send_otp(p_val, c_val, service_val)
-        if "error" in otp_res:
-            st.error(otp_res["error"])
-        else:
-            st.success(otp_res.get("message", "OTP Sent!"))
+        if st.button("Send OTP"):
+            otp_res = send_otp(p_val, c_val, service_val)
+            if "error" in otp_res:
+                st.error(otp_res["error"])
+            else:
+                st.success(otp_res.get("message", "OTP Sent!"))
 
-    col_o, col_vb = st.columns([2, 1])
-    with col_o:
-        otp_val = st.text_input("Enter 4-digit OTP", placeholder="1234", key="login_otp")
-    with col_vb:
-        st.write("")
-        if st.button("Verify OTP"):
-            v_res = verify_otp(p_val, otp_val)
-            if "error" in v_res:
-                st.error(v_res["error"])
-            elif "worker_id" in v_res:
-                st.session_state.worker_id = v_res["worker_id"]
-                st.success(f"Verified! Using Worker ID: {st.session_state.worker_id}")
-                st.rerun()
+        col_o, col_vb = st.columns([2, 1])
+        with col_o:
+            otp_val = st.text_input("Enter 4-digit OTP", placeholder="1234", key="login_otp")
+        with col_vb:
+            st.write("")
+            if st.button("Verify OTP"):
+                v_res = verify_otp(p_val, otp_val)
+                if "error" in v_res:
+                    st.error(v_res["error"])
+                elif "worker_id" in v_res:
+                    st.session_state.worker_id = v_res["worker_id"]
+                    st.success(f"Verified! Using Worker ID: {st.session_state.worker_id}")
+                    st.rerun()
 
     with st.container(key="worker_card"):
         left, right = st.columns([1, 1])
