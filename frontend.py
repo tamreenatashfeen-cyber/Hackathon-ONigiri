@@ -718,7 +718,7 @@ that connects real-time voice input to search results.</p>
 </div>
 
 <div class="team-member">
-<div class="name">Mehmona Tehran</div>
+<div class="name">Mamuna Ahmad</div>
 <div class="role">Design & Documentation</div>
 <p>Led the brand identity for BoLocal, including the logo and color palette, and
 managed the project's documentation, research, and pitch materials — including the
