@@ -727,7 +727,7 @@ judging.</p>
 </div>
 
 <p style="margin-top:10px; color:#9d94b3; font-size:13px;">
-Built for the WeAreDevelopers Hackathon, September 2026.
+Built In October 2026.
 </p>
 </div>
     """, unsafe_allow_html=True)
